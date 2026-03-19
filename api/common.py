@@ -5,6 +5,26 @@ from urllib.parse import urlparse
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
+
+_MANIFEST_PROTOCOLS = {
+    'm3u8',
+    'm3u8_native',
+    'dash',
+    'http_dash_segments',
+    'ism',
+}
+
+
+def requires_native_download(media):
+    protocol = (media.get('protocol') or '').lower()
+    stream_url = (media.get('stream_url') or '').lower()
+    return (
+        protocol in _MANIFEST_PROTOCOLS
+        or '.m3u8' in stream_url
+        or '.mpd' in stream_url
+        or stream_url.endswith('.ism/manifest')
+    )
+
 def is_http_url(value):
     parsed = urlparse(value)
     return parsed.scheme in {'http', 'https'} and bool(parsed.netloc)
@@ -172,5 +192,34 @@ def extract_media(url, fmt='best', audio_only=False, single_video=True):
         'stream_url': info.get('url'),
         'extractor': info.get('extractor_key') or info.get('extractor'),
         'ext': info.get('ext') or 'mp4',
+        'protocol': info.get('protocol'),
         'http_headers': info.get('http_headers') or {},
+    }
+
+
+def download_media(url, *, directory, fmt='best', audio_only=False, single_video=True):
+    ydl_opts = {
+        **_base_ydl_opts(fmt, audio_only, single_video),
+        'skip_download': False,
+        'paths': {'home': directory, 'temp': directory},
+        'outtmpl': {'default': '%(title).180B [%(id)s].%(ext)s'},
+        'noprogress': True,
+    }
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    if 'entries' in info and info.get('entries'):
+        info = next((entry for entry in info['entries'] if entry), None) or info
+
+    filepath = ((info.get('requested_downloads') or [{}])[0].get('filepath')
+                or info.get('filepath') or info.get('_filename'))
+    if not filepath or not os.path.exists(filepath):
+        raise RuntimeError('yt-dlp finished without producing a downloadable file')
+
+    return {
+        'id': info.get('id'),
+        'title': info.get('title'),
+        'ext': info.get('ext') or os.path.splitext(filepath)[1].lstrip('.') or 'mp4',
+        'filepath': filepath,
     }
