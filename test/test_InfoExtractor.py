@@ -14,6 +14,7 @@ import threading
 from test.helper import FakeYDL, expect_dict, expect_value, http_server_port
 from yt_dlp.compat import compat_etree_fromstring
 from yt_dlp.extractor import YoutubeIE, get_info_extractor
+from yt_dlp.extractor.twitter import TwitterBaseIE
 from yt_dlp.extractor.common import InfoExtractor
 from yt_dlp.utils import (
     ExtractorError,
@@ -58,6 +59,11 @@ class DummyIE(InfoExtractor):
             {'formats': formats, '_format_sort_fields': field_preference})
 
 
+class DummyTwitterIE(TwitterBaseIE):
+    def _real_extract(self, url):
+        raise NotImplementedError
+
+
 class TestInfoExtractor(unittest.TestCase):
     def setUp(self):
         self.ie = DummyIE(FakeYDL())
@@ -78,6 +84,36 @@ class TestInfoExtractor(unittest.TestCase):
             self.assertEqual(ie._get_netrc_login_info(netrc_machine='nonexistent'), (None, None))
             with self.assertRaises(ExtractorError):
                 ie._get_netrc_login_info(netrc_machine=';echo rce')
+
+    def test_twitter_mp4_variant_sets_media_headers(self):
+        ie = DummyTwitterIE(FakeYDL())
+        formats, subtitles = ie._extract_variant_formats({
+            'url': 'https://video.twimg.com/ext_tw_video/1234/pu/vid/1280x720/abc.mp4',
+            'bitrate': '832000',
+        }, '1234')
+        self.assertFalse(subtitles)
+        self.assertEqual(formats, [{
+            'url': 'https://video.twimg.com/ext_tw_video/1234/pu/vid/1280x720/abc.mp4',
+            'format_id': 'http-832',
+            'tbr': 832,
+            'width': 1280,
+            'height': 720,
+            'http_headers': ie._MEDIA_HEADERS,
+        }])
+
+    def test_twitter_m3u8_variant_passes_media_headers(self):
+        class HeaderCapturingTwitterIE(DummyTwitterIE):
+            def _extract_m3u8_formats_and_subtitles(self, *args, **kwargs):
+                self.captured_headers = kwargs.get('headers')
+                return [], {}
+
+        ie = HeaderCapturingTwitterIE(FakeYDL())
+        formats, subtitles = ie._extract_variant_formats({
+            'url': 'https://video.twimg.com/ext_tw_video/1234/pu/pl/test.m3u8',
+        }, '1234')
+        self.assertFalse(formats)
+        self.assertFalse(subtitles)
+        self.assertEqual(ie.captured_headers, ie._MEDIA_HEADERS)
 
     def test_html_search_regex(self):
         html = '<p id="foo">Watch this <a href="http://www.youtube.com/watch?v=BaW_jenozKc">video</a></p>'

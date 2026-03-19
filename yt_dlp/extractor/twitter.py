@@ -33,6 +33,10 @@ from ..utils.traversal import require, traverse_obj
 
 class TwitterBaseIE(InfoExtractor):
     _API_BASE = 'https://api.x.com/1.1/'
+    _MEDIA_HEADERS = {
+        'Referer': 'https://x.com/',
+        'Origin': 'https://x.com',
+    }
     _GRAPHQL_API_BASE = 'https://x.com/i/api/graphql/'
     _BASE_REGEX = r'https?://(?:(?:www|m(?:obile)?)\.)?(?:(?:twitter|x)\.com|twitter3e4tixl4xyajtrzo62zg5vztmjuricljdp2c5kshju4avyoid\.onion)/'
     _AUTH = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
@@ -45,7 +49,7 @@ class TwitterBaseIE(InfoExtractor):
         elif '.m3u8' in variant_url:
             fmts, subs = self._extract_m3u8_formats_and_subtitles(
                 variant_url, video_id, 'mp4', 'm3u8_native',
-                m3u8_id='hls', fatal=False)
+                m3u8_id='hls', fatal=False, headers=self._MEDIA_HEADERS)
             for f in traverse_obj(fmts, lambda _, v: v['vcodec'] == 'none' and v.get('tbr') is None):
                 if mobj := re.match(r'hls-[Aa]udio-(?P<bitrate>\d{4,})', f['format_id']):
                     f['tbr'] = int_or_none(mobj.group('bitrate'), 1000)
@@ -56,6 +60,7 @@ class TwitterBaseIE(InfoExtractor):
                 'url': variant_url,
                 'format_id': join_nonempty('http', tbr),
                 'tbr': tbr,
+                'http_headers': self._MEDIA_HEADERS,
             }
             self._search_dimensions_in_video_url(f, variant_url)
             return [f], {}
