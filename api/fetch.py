@@ -1,9 +1,11 @@
+import os
+import tempfile
 from http.server import BaseHTTPRequestHandler
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 
-from api.common import extract_media, is_http_url, safe_filename
+from api.common import download_media, extract_media, is_http_url, requires_native_download, safe_filename
 
 
 def _read_args(path):
@@ -32,6 +34,26 @@ class handler(BaseHTTPRequestHandler):
                 self.send_response(422)
                 self.end_headers()
                 self.wfile.write(b'Could not resolve direct media URL')
+                return
+
+            if requires_native_download(media):
+                with tempfile.TemporaryDirectory(prefix='downer-') as tmpdir:
+                    downloaded = download_media(
+                        url, directory=tmpdir, fmt=fmt, audio_only=audio_only, single_video=single_video)
+                    filename = f"{safe_filename(downloaded.get('title') or downloaded.get('id') or 'video')}.{downloaded.get('ext') or 'mp4'}"
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/octet-stream')
+                    self.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{quote(filename)}")
+                    self.send_header('Cache-Control', 'no-store')
+                    self.send_header('Content-Length', str(os.path.getsize(downloaded['filepath'])))
+                    self.end_headers()
+
+                    with open(downloaded['filepath'], 'rb') as media_file:
+                        while True:
+                            chunk = media_file.read(64 * 1024)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
                 return
 
             req_headers = media.get('http_headers') or {}

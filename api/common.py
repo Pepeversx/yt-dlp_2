@@ -216,3 +216,31 @@ def extract_media(url, fmt='best', audio_only=False, single_video=True):
         'protocol': selected.get('protocol') or info.get('protocol'),
         'http_headers': selected.get('http_headers') or info.get('http_headers') or {},
     }
+
+
+def download_media(url, *, directory, fmt='best', audio_only=False, single_video=True):
+    ydl_opts = {
+        **_base_ydl_opts(fmt, audio_only, single_video),
+        'skip_download': False,
+        'paths': {'home': directory, 'temp': directory},
+        'outtmpl': {'default': '%(title).180B [%(id)s].%(ext)s'},
+        'noprogress': True,
+    }
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    if 'entries' in info and info.get('entries'):
+        info = next((entry for entry in info['entries'] if entry), None) or info
+
+    filepath = ((info.get('requested_downloads') or [{}])[0].get('filepath')
+                or info.get('filepath') or info.get('_filename'))
+    if not filepath or not os.path.exists(filepath):
+        raise RuntimeError('yt-dlp finished without producing a downloadable file')
+
+    return {
+        'id': info.get('id'),
+        'title': info.get('title'),
+        'ext': info.get('ext') or os.path.splitext(filepath)[1].lstrip('.') or 'mp4',
+        'filepath': filepath,
+    }
