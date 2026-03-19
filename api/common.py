@@ -6,24 +6,42 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 
-_MANIFEST_PROTOCOLS = {
-    'm3u8',
-    'm3u8_native',
-    'dash',
-    'http_dash_segments',
-    'ism',
-}
+
+def _is_twitter_or_x_source(url, info):
+    netloc = (urlparse(url).netloc or '').lower()
+    extractor = (info.get('extractor_key') or info.get('extractor') or '').lower()
+    return 'twitter' in extractor or netloc.endswith('x.com') or netloc.endswith('twitter.com')
 
 
-def requires_native_download(media):
-    protocol = (media.get('protocol') or '').lower()
-    stream_url = (media.get('stream_url') or '').lower()
-    return (
-        protocol in _MANIFEST_PROTOCOLS
-        or '.m3u8' in stream_url
-        or '.mpd' in stream_url
-        or stream_url.endswith('.ism/manifest')
-    )
+def _direct_http_formats(info, *, audio_only=False):
+    formats = info.get('formats') or []
+
+    def is_direct_http(fmt):
+        url = fmt.get('url') or ''
+        protocol = (fmt.get('protocol') or '').lower()
+        return (
+            bool(url)
+            and (protocol in ('http', 'https') or url.startswith(('http://', 'https://')))
+            and '.m3u8' not in url.lower()
+            and '.mpd' not in url.lower()
+            and not url.lower().endswith('.ism/manifest')
+        )
+
+    candidates = [fmt for fmt in formats if is_direct_http(fmt)]
+    if audio_only:
+        candidates = [fmt for fmt in candidates if fmt.get('vcodec') == 'none']
+    else:
+        candidates = [fmt for fmt in candidates if fmt.get('vcodec') != 'none']
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=lambda fmt: (
+        fmt.get('height') or 0,
+        fmt.get('width') or 0,
+        fmt.get('tbr') or 0,
+        fmt.get('abr') or 0,
+    ))
 
 def is_http_url(value):
     parsed = urlparse(value)
@@ -184,16 +202,19 @@ def extract_media(url, fmt='best', audio_only=False, single_video=True):
     if 'entries' in info and info.get('entries'):
         info = next((entry for entry in info['entries'] if entry), None) or info
 
+    selected = _direct_http_formats(info, audio_only=audio_only) if _is_twitter_or_x_source(url, info) else None
+    selected = selected or info
+
     return {
         'id': info.get('id'),
         'title': info.get('title'),
         'duration': info.get('duration'),
         'webpage_url': info.get('webpage_url') or url,
-        'stream_url': info.get('url'),
+        'stream_url': selected.get('url') or info.get('url'),
         'extractor': info.get('extractor_key') or info.get('extractor'),
-        'ext': info.get('ext') or 'mp4',
-        'protocol': info.get('protocol'),
-        'http_headers': info.get('http_headers') or {},
+        'ext': selected.get('ext') or info.get('ext') or 'mp4',
+        'protocol': selected.get('protocol') or info.get('protocol'),
+        'http_headers': selected.get('http_headers') or info.get('http_headers') or {},
     }
 
 
