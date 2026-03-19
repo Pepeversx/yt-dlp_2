@@ -34,7 +34,7 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(b'Could not resolve direct media URL')
                 return
 
-            req_headers = media.get('http_headers') or {}
+            req_headers = dict(media.get('http_headers') or {})
             req = Request(stream_url, headers=req_headers)
             with urlopen(req, timeout=25) as upstream:
                 ext = media.get('ext') or 'mp4'
